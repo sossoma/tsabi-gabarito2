@@ -8,7 +8,7 @@ class PrimaryButton extends StatelessWidget {
   const PrimaryButton({super.key, required this.label, required this.onPressed, this.width = 331, this.height = 60, this.child});
 
   final String label;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
   final double width;
   final double height;
   final Widget? child;
@@ -81,7 +81,7 @@ class _PressedBuilder extends StatelessWidget {
   final Color colorDefault;
   final Color colorPressed;
   final Widget child;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {

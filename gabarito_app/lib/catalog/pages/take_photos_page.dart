@@ -1,6 +1,9 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'dart:typed_data';
+import '../../core/api_config.dart';
+import '../../services/photo_service.dart';
 import '../../design_system/theme/app_tokens_extension.dart';
 import '../../design_system/components/secondary_button.dart';
 import '../../design_system/components/primary_button.dart';
@@ -18,6 +21,9 @@ class _TakePhotosPageState extends State<TakePhotosPage> {
   Future<void>? _initFuture;
   int _pageCount = 0;
   bool _hasCover = false;
+  bool _isBusy = false;
+  String? _sessionId;
+  late final PhotoService _photoService = PhotoService(apiBaseUrl);
 
   @override
   void initState() {
@@ -112,24 +118,15 @@ class _TakePhotosPageState extends State<TakePhotosPage> {
             children: <Widget>[
               Expanded(
                 child: SecondaryButton(
-                  label: _hasCover ? 'Finalizar' : 'Não Possui',
-                  onPressed: () {
-                    if (_hasCover) {
-                      context.goNamed('page_processing_status', extra: <String, dynamic>{'totalPhotos': _pageCount});
-                    }
-                  },
+                  label: _hasCover ? (_isBusy ? 'Enviando...' : 'Finalizar') : 'Não Possui',
+                  onPressed: _hasCover && !_isBusy ? () { _finalizeAndNavigate(); } : null,
                 ),
               ),
               SizedBox(width: t.spacingMd),
               Expanded(
                 child: PrimaryButton(
                   label: '',
-                  onPressed: () {
-                    setState(() {
-                      _pageCount += 1;
-                      _hasCover = true;
-                    });
-                  },
+                  onPressed: _isBusy ? null : () { _captureAndUpload(); },
                   child: Image.asset(
                     'assets/images/icon-camera.png',
                     width: 28,
@@ -144,6 +141,48 @@ class _TakePhotosPageState extends State<TakePhotosPage> {
         ),
       ),
     );
+  }
+
+  Future<void> _captureAndUpload() async {
+    if (_controller == null || !_controller!.value.isInitialized) return;
+    setState(() => _isBusy = true);
+    try {
+      final XFile file = await _controller!.takePicture();
+      final Uint8List bytes = await file.readAsBytes();
+      final int nextPage = _pageCount + 1;
+      final String sid = _sessionId ?? await _photoService.startSession(examId: 'default', photosExpected: 0);
+      _sessionId = sid;
+      final presigned = await _photoService.presign(sessionId: sid);
+      await _photoService.uploadBytes(uploadUrl: presigned.uploadUrl, bytes: bytes, headers: presigned.headers);
+      await _photoService.register(sessionId: sid, objectKey: presigned.objectKey, pageNumber: nextPage);
+      if (!mounted) return;
+      setState(() {
+        _pageCount = nextPage;
+        _hasCover = true;
+      });
+    } catch (_) {
+      // TODO: add user feedback
+    } finally {
+      if (mounted) setState(() => _isBusy = false);
+    }
+  }
+
+  Future<void> _finalizeAndNavigate() async {
+    setState(() => _isBusy = true);
+    try {
+      final String sid = _sessionId ?? await _photoService.startSession(examId: 'default', photosExpected: _pageCount);
+      _sessionId = sid;
+      await _photoService.finalize(sid);
+      if (!mounted) return;
+      context.goNamed('page_processing_status', extra: <String, dynamic>{
+        'totalPhotos': _pageCount,
+        'sessionId': sid,
+      });
+    } catch (_) {
+      // TODO: add user feedback
+    } finally {
+      if (mounted) setState(() => _isBusy = false);
+    }
   }
 }
  
